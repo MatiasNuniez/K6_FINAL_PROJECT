@@ -82,10 +82,7 @@ jobs:
           exit 1
 
       - name: Install k6
-        run: |
-          curl -fsSL https://github.com/grafana/k6/releases/latest/download/k6-latest-linux-amd64.tar.gz \
-            | sudo tar xzf - --strip-components=1 -C /usr/local/bin
-          k6 version
+        uses: grafana/setup-k6-action@v1
 
       - name: Create reports directory
         run: mkdir -p k6/reports
