@@ -1,4 +1,5 @@
 import http from 'k6/http';
+import { sleep } from 'k6';
 import { BASE_URL_EMPLOYEE, BASE_URL_PAYROLL, JSON_HEADERS } from '../config/thresholds.js';
 
 export function createTestEmployee(name, contractType, grossSalary) {
@@ -18,19 +19,29 @@ export function createTestEmployee(name, contractType, grossSalary) {
   return JSON.parse(res.body);
 }
 
-export function calculatePayroll(employeeId) {
-  const res = http.post(
-    `${BASE_URL_PAYROLL}/calculate/${employeeId}`,
-    null,
-    JSON_HEADERS
-  );
+export function calculatePayroll(employeeId, retries = 5, delaySeconds = 2) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const res = http.post(
+      `${BASE_URL_PAYROLL}/calculate/${employeeId}`,
+      null,
+      JSON_HEADERS
+    );
 
-  if (res.status !== 201) {
+    if (res.status === 201) {
+      return JSON.parse(res.body);
+    }
+
+    if (res.status === 404 && attempt < retries) {
+      console.warn(`Employee ${employeeId} not synced yet (attempt ${attempt}/${retries}), retrying in ${delaySeconds}s...`);
+      sleep(delaySeconds);
+      continue;
+    }
+
     console.error(`Failed to calculate payroll: ${res.status} - ${res.body}`);
     return null;
   }
 
-  return JSON.parse(res.body);
+  return null;
 }
 
 export function confirmPayroll(payrollId) {
