@@ -1,9 +1,3 @@
-// =============================================================================
-// Load Test: Generación de PDF (GET /api/v1/payroll/{payrollId}/pdf)
-// SLA: response time ≤ 3000ms | error rate < 1%
-// Prerequisito: nómina calculada Y confirmada
-// =============================================================================
-
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
@@ -15,11 +9,11 @@ const pdfFailRate = new Rate('pdf_generation_fail_rate');
 
 export const options = {
   stages: [
-    { duration: '1m', target: 10 },
-    { duration: '5m', target: 10 },
-    { duration: '1m', target: 20 },
-    { duration: '5m', target: 20 },
-    { duration: '1m', target: 0 },
+    { duration: '30s', target: 20 }, 
+    { duration: '1m', target: 20 },  
+    { duration: '30s', target: 50 }, 
+    { duration: '1m', target: 50 },   
+    { duration: '10s', target: 0 },    
   ],
   thresholds: {
     ...slaThresholds,
@@ -28,7 +22,6 @@ export const options = {
   },
 };
 
-// ── Setup: crear empleado → calcular nómina → confirmar ─────────────────────
 export function setup() {
   const contracts = ['FULL_TIME', 'PART_TIME', 'PROFESSIONAL_SERVICES'];
   const salaries  = [3000, 1500, 5000];
@@ -59,11 +52,9 @@ export function setup() {
   return { payrolls };
 }
 
-// ── Iteración principal ─────────────────────────────────────────────────────
 export default function (data) {
   const p = data.payrolls[Math.floor(Math.random() * data.payrolls.length)];
 
-  // GET /api/v1/payroll/{payrollId}/pdf
   const res = http.get(
     `${BASE_URL_PAYROLL}/${p.payrollId}/pdf`,
     { responseType: 'binary' }
