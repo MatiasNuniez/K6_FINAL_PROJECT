@@ -52,8 +52,11 @@ jobs:
           PAYROLL_DB_PASSWORD=${{ env.PAYROLL_DB_PASSWORD }}
           EOF
 
+      - name: Build services (no cache)
+        run: docker compose build --no-cache
+
       - name: Start services with Docker Compose
-        run: docker compose up -d --build
+        run: docker compose up -d
 
       - name: Wait for services to be healthy
         run: |

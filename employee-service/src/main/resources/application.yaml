@@ -25,6 +25,15 @@ spring:
     resources:
       add-mappings: false
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      enabled: true
+
 rabbitmq:
   exchange:
     employee: employee.exchange
