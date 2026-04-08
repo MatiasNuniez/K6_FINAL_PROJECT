@@ -1,0 +1,147 @@
+name: K6 Performance Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Tipo de prueba a ejecutar'
+        required: true
+        type: choice
+        options:
+          - load-calculate
+          - stress-calculate
+          - spike-calculate
+          - load-pdf
+          - all
+        default: load-calculate
+
+env:
+  # Variables para docker-compose (mismas que .env.example)
+  RABBITMQ_DEFAULT_USER: guest
+  RABBITMQ_DEFAULT_PASS: guest
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  EMPLOYEE_DB_NAME: employee_db
+  EMPLOYEE_DB_USER: postgres
+  EMPLOYEE_DB_PASSWORD: postgres
+  PAYROLL_DB_NAME: payroll_db
+  PAYROLL_DB_USER: postgres
+  PAYROLL_DB_PASSWORD: postgres
+
+jobs:
+  performance-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat <<EOF > .env
+          RABBITMQ_DEFAULT_USER=${{ env.RABBITMQ_DEFAULT_USER }}
+          RABBITMQ_DEFAULT_PASS=${{ env.RABBITMQ_DEFAULT_PASS }}
+          RABBITMQ_HOST=${{ env.RABBITMQ_HOST }}
+          RABBITMQ_PORT=${{ env.RABBITMQ_PORT }}
+          EMPLOYEE_DB_NAME=${{ env.EMPLOYEE_DB_NAME }}
+          EMPLOYEE_DB_USER=${{ env.EMPLOYEE_DB_USER }}
+          EMPLOYEE_DB_PASSWORD=${{ env.EMPLOYEE_DB_PASSWORD }}
+          PAYROLL_DB_NAME=${{ env.PAYROLL_DB_NAME }}
+          PAYROLL_DB_USER=${{ env.PAYROLL_DB_USER }}
+          PAYROLL_DB_PASSWORD=${{ env.PAYROLL_DB_PASSWORD }}
+          EOF
+
+      - name: Start services with Docker Compose
+        run: docker compose up -d --build
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for services to be ready..."
+          for i in $(seq 1 60); do
+            EMPLOYEE_OK=$(curl -sf http://localhost:8081/actuator/health 2>/dev/null || echo "")
+            PAYROLL_OK=$(curl -sf http://localhost:8082/actuator/health 2>/dev/null || echo "")
+
+            if echo "$EMPLOYEE_OK" | grep -q "UP" && echo "$PAYROLL_OK" | grep -q "UP"; then
+              echo "Both services are healthy"
+              exit 0
+            fi
+
+            echo "Attempt $i/60 — waiting 10s..."
+            sleep 10
+          done
+
+          echo "ERROR: Services failed to become healthy after 10 minutes"
+          echo "--- Employee service logs ---"
+          docker compose logs employee-service --tail=50
+          echo "--- Payroll service logs ---"
+          docker compose logs payroll-service --tail=50
+          exit 1
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D68
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+          k6 version
+
+      - name: Create reports directory
+        run: mkdir -p k6/reports
+
+      - name: Run Load Test — Calculate (TC-028)
+        if: inputs.test_type == 'load-calculate' || inputs.test_type == 'all'
+        run: |
+          k6 run k6/scripts/load-calculate.js \
+            --out json=k6/reports/load-calculate-results.json \
+            --summary-export=k6/reports/load-calculate-summary.json
+
+      - name: Run Stress Test — Calculate
+        if: inputs.test_type == 'stress-calculate' || inputs.test_type == 'all'
+        run: |
+          k6 run k6/scripts/stress-calculate.js \
+            --out json=k6/reports/stress-calculate-results.json \
+            --summary-export=k6/reports/stress-calculate-summary.json
+
+      - name: Run Spike Test — Calculate
+        if: inputs.test_type == 'spike-calculate' || inputs.test_type == 'all'
+        run: |
+          k6 run k6/scripts/spike-calculate.js \
+            --out json=k6/reports/spike-calculate-results.json \
+            --summary-export=k6/reports/spike-calculate-summary.json
+
+      - name: Run Load Test — PDF
+        if: inputs.test_type == 'load-pdf' || inputs.test_type == 'all'
+        run: |
+          k6 run k6/scripts/load-pdf.js \
+            --out json=k6/reports/load-pdf-results.json \
+            --summary-export=k6/reports/load-pdf-summary.json
+
+      - name: Upload k6 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-performance-reports-${{ inputs.test_type }}
+          path: k6/reports/
+          retention-days: 30
+
+      - name: Print service logs on failure
+        if: failure()
+        run: |
+          echo "=== Employee Service Logs ==="
+          docker compose logs employee-service --tail=100
+          echo ""
+          echo "=== Payroll Service Logs ==="
+          docker compose logs payroll-service --tail=100
+          echo ""
+          echo "=== RabbitMQ Logs ==="
+          docker compose logs rabbitmq --tail=50
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
