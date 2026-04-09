@@ -16,7 +16,6 @@ on:
         default: load-calculate
 
 env:
-  # Variables para docker-compose (mismas que .env.example)
   RABBITMQ_DEFAULT_USER: guest
   RABBITMQ_DEFAULT_PASS: guest
   RABBITMQ_HOST: rabbitmq
